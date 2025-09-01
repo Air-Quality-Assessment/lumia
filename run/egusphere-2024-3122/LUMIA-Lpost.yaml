@@ -1,0 +1,110 @@
+# Settings for the LUMIA-Lpost inversion of https://doi.org/10.5194/egusphere-2024-3122
+
+
+run:
+  start: 1 jan 2018
+  end: 1 jan 2019
+  paths: ${machine}
+  domain: eurocom025x025
+  optimizer: ${scipy_cg}
+  tag: LUMIA-Lpost
+  interval: 1d
+  ncores: ${machine.ncores}
+
+observations:
+  file: observations_coco2_ch4_exp1.tar.gz
+  uncertainties:
+    err_min: 20.0
+    err_fac: 1.0
+  rename:
+    mix_bg: mix_background
+  start: ${run.start}
+  end: ${run.end}
+
+emissions:
+  tracers:
+  - ch4
+  ch4:
+    region: ${grid.${run.domain}}
+    interval: ${run.interval}
+    categories:
+      fossil: fossil.CoCO2
+      agriwaste: agriwaste.CoCO2
+      termites: termites.CoCO2
+      geological: geological.CoCO2
+      lakes: lakes.CoCO2
+      ocean: ocean.CoCO2
+      wetlands:
+        origin: LPJ-MCMC-apos
+        field: ch4emis
+      bmb: bmb.CoCO2
+    metacategories:
+      total_excl_wetland: fossil + agriwaste + bmb + geological + termites + lakes
+        + ocean
+    path: ${run.paths.emissions}/${run.domain}
+    prefix: flux_ch4.
+    archive: rclone:lumia:fluxes/nc/${run.domain}
+
+grid:
+  eurocom025x025: ${Grid:{lon0:-15, lat0:33, lon1:35, lat1:73, dlon:0.25, dlat:0.25}}
+
+model:
+  path_temp: ${run.paths.temp}
+  executable: ${lumia:src/transport/multitracer.py}
+  path_footprints: ${run.paths.footprints}
+  split_categories: true
+  output_steps:
+  - apri
+  - apos
+  serial: false
+  path_output: ${run.paths.output}
+  setup_uncertainties:
+  - apri
+  extra_arguments:
+    apri: --check-footprints --copy-footprints ${machine.footprints_cache}
+    '*': -n ${run.ncores}
+  extra_fields:
+  - footprint
+  - obsid
+
+optimize:
+  emissions:
+    ch4:
+      wetlands:
+        annual_uncertainty: 0.5 TgCH4
+        horizontal_correlation:
+          type: e
+          correlation_length: 1000 km
+        temporal_correlation:
+          type: e
+          correlation_length: 30D
+        error_structure:
+          type: file
+          file: /scratch/users/guillaume/lumia/fluxes/eurocom025x025/1d/flux_ch4.LPJ-MCMC-apos.2018.nc
+        optimization_interval: 1d
+      total_excl_wetland:
+        annual_uncertainty: 5 TgCH4
+        horizontal_correlation:
+          type: e
+          correlation_length: 500 km
+        temporal_correlation:
+          type: e
+          correlation_length: 30D
+        error_structure:
+          type: linear
+        optimization_interval: 1d
+
+scipy_cg:
+  gradient_norm_reduction: ${lanczos.gradient_norm_reduction}
+  number_of_iterations: ${lanczos.number_of_iterations}
+  output_path: ${lanczos.output_path}
+
+host:
+  ncores: 24
+  correlations: /scratch/users/guillaume/lumia/correlations                 
+  output: output/${run.tag}
+  emissions: /scratch/users/guillaume/lumia/fluxes                          
+  temp: /dev/shm/lumia                                                      
+  footprints: /data/projects/LUMIA/footprints/footprints_coco2_wp4_ch4      
+  footprints_cache: /dev/shm/footprints                                     
+  congrad: ${lumia:src/congrad/congrad.exe}                                 
