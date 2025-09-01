@@ -17,6 +17,7 @@ from lumia.utils.clusters import clusterize
 from lumia.utils.time_utils import overlap_percent, interval_range
 from lumia.optimizer.categories import Category
 from lumia.utils import debug
+from pathlib import Path
 
 
 @dataclass(kw_only=True)
@@ -27,6 +28,14 @@ class Mapping:
     optim_data : DataFrame = None
     spatial_mapping : Dict[Category, Dataset] = field(default_factory=dict)
     temporal_mapping : Dict[Category, Dataset] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        if self.dconf.optimize.emissions.get('optim_scf'):
+            self.vec_to_struct = self.vec_to_struct_scf
+            self.vec_to_struct_adj = self.vec_to_struct_scf_adj
+        else :
+            self.vec_to_struct = self.vec_to_struct_offset
+            self.vec_to_struct_adj = self.vec_to_struct_offset_adj
 
     @classmethod
     def init(cls, dconf: DictConfig, emis: Data, sensi_map: NDArray = None) -> "Mapping":
@@ -37,7 +46,7 @@ class Mapping:
         return mapping
 
     @debug.timer
-    def vec_to_struct(self, vector: NDArray) -> Data:
+    def vec_to_struct_offset(self, vector: NDArray) -> Data:
         """
         Converts a state vector to flux array(s). The conversion follows the steps:
         0. The input state vector contains fluxes in umol, for each space/time cluster
@@ -63,7 +72,26 @@ class Mapping:
         return struct
 
     @debug.timer
-    def vec_to_struct_adj(self, adjemis : Data) -> NDArray:
+    def vec_to_struct_scf(self, vector: NDArray) -> Data:
+        """
+        Same as vec_to_struct, but applies a scaling factor instead of an offset
+        """
+        struct = self.model_data.copy(copy_attrs=True)
+        struct.resolve_metacats()
+        tracer = self.optim_data.tracer
+        categ = self.optim_data.category
+        
+        for cat in self.optimized_categories:
+            vec = vector[(categ == cat.name) & (tracer == cat.tracer)]
+            sc = self.distribflux_time_sc(vec, cat)
+            sc = self.distribflux_space_sc(sc, cat)
+            struct[cat.tracer][cat.name].data *= (sc + 1)
+            
+        struct.to_intensive()
+        return struct
+
+    @debug.timer
+    def vec_to_struct_offset_adj(self, adjemis : Data) -> NDArray:
         adjemis.to_intensive_adj()
 
         adjvec = []
@@ -71,6 +99,18 @@ class Mapping:
             emcoarse_adj = self.distribflux_space_adj(adjemis[cat.tracer][cat.name].data, cat)
             emcoarse_adj = self.distribflux_time_adj(emcoarse_adj, cat)
             adjvec.extend(emcoarse_adj)
+        return array(adjvec)
+    
+    @debug.timer
+    def vec_to_struct_scf_adj(self, adjemis: Data) -> NDArray:
+        adjemis.to_intensive_adj()
+
+        adjvec = []
+        for cat in self.optimized_categories :
+            adj = adjemis[cat.tracer][cat.name].data * self.model_data[cat.tracer][cat.name].data
+            adj = self.distribflux_space_adj(adj, cat)
+            adj = self.distribflux_time_adj(adj, cat)
+            adjvec.extend(adj)
         return array(adjvec)
 
     @debug.timer
@@ -95,6 +135,17 @@ class Mapping:
 
         # Remap by matrix product (emfine = Tmap^t * emcoarse)
         return disaggregation_matrix.transpose() @ emcoarse
+    
+    @debug.timer
+    def distribflux_time_sc(self, emcoarse: NDArray, cat: Category) -> NDArray:
+        """
+        same as distribflux_time but for scaling factors ==> the "fine" value should be the same as the "coarse" one, regardless the overlap fraction
+        """
+        tmap = self.temporal_mapping[cat].overlap_fraction
+        ntopt = tmap.time_optim.size
+        disaggregation_matrix = tmap.data
+        emcoarse = emcoarse.reshape(ntopt, -1)
+        return disaggregation_matrix.astype(bool).transpose() @ emcoarse
 
     @debug.timer
     def distribflux_time_adj(self, emcoarse_adj: NDArray, cat: Category):
@@ -114,6 +165,12 @@ class Mapping:
         emcoarse_adj = disaggregation_matrix @ emcoarse_adj
 
         # 3) Reshape as a vector and return
+        return emcoarse_adj.reshape(-1)
+    
+    @debug.timer
+    def distribflux_time_sc_adj(self, emcoarse_adj: NDArray, cat: Category):
+        disaggregation_matrix = self.temporal_mapping[cat].overlap_fraction.data
+        emcoarse_adj = disaggregation_matrix.astype(bool) @ emcoarse_adj
         return emcoarse_adj.reshape(-1)
 
     @debug.timer
@@ -141,6 +198,19 @@ class Mapping:
         return emfine.reshape(self.model_data[cat.tracer].shape)
 
     @debug.timer
+    def distribflux_space_sc(self, emcoarse: NDArray, cat: Category) -> NDArray:
+        """
+        Same as distribflux_space but for scaling factors ==> the "fine" value should be the same as the "coarse" one, regardless the overlap fraction.
+        """
+        disaggregation_matrix = self.spatial_mapping[cat].overlap_fraction.data
+        if disaggregation_matrix.dtype == bool:
+            emfine = zeros((emcoarse.shape[0], disaggregation_matrix.shape[0]))
+            emfine[:, disaggregation_matrix.sum(1).astype(bool)] = emcoarse
+        else :
+            emfine = emcoarse @ disaggregation_matrix.astype(bool).transpose()
+        return emfine.reshape(self.model_data[cat.tracer].shape)
+
+    @debug.timer
     def distribflux_space_adj(self, emcoarse_adj: NDArray, cat: Category) -> NDArray:
         """
         Adjoint of distribflux_space.
@@ -164,6 +234,17 @@ class Mapping:
             emfine_adj = emcoarse_adj @ disaggregation_matrix
 
         return emfine_adj
+    
+    @debug.timer
+    def distribflux_space_sc_adj(self, emcoarse_adj: NDArray, cat: Category) -> NDArray:
+        emcoarse_adj = emcoarse_adj.reshape(emcoarse_adj.shape[0], -1)
+        disaggregation_matrix = self.spatial_mapping[cat].overlap_fraction.data
+        if disaggregation_matrix.dtype == bool:
+            # If there is no spatial aggregation, it is a simple mapping of emission components on state vector, so we can take a shortcut:
+            emfine_adj = emcoarse_adj[:, disaggregation_matrix.sum(1).astype(bool)]
+        else :
+            emfine_adj = emcoarse_adj @ disaggregation_matrix.astype(bool)
+        return emfine_adj
 
     @property
     def tracers(self):
@@ -179,6 +260,7 @@ class Mapping:
     def setup_optimization(self) -> None:
         """
         Read the optimization parameters (tracers, categories, uncertaintes, etc.)
+        The purpose of this method is to fill the "Category" object (lumia.optimizer.categories module) for each category.
         """
 
         for tracer in self.model_data.tracers:
@@ -187,22 +269,55 @@ class Mapping:
                 self.model_data[tracer].add_metacat(k, v)
 
         for cat in self.model_data.categories :
+
             optim_pars = self.dconf.optimize.emissions[cat.tracer].get(cat.name)
             attrs = {'optimized': optim_pars is not None}
             if optim_pars is not None:
                 logger.info(f'Category {cat.name} of tracer {cat.tracer} will be optimized')
-                attrs.update({
+
+                # Simple attributes
+                attrs = {
+                    'optimized' : True,
                     'optimization_interval': optim_pars.optimization_interval,
                     'apply_lsm': optim_pars.get('apply_lsm', True),
                     'is_ocean': optim_pars.get('is_ocean', False),
                     'n_optim_points': optim_pars.get('npoints', None),
-                    'horizontal_correlation': optim_pars.spatial_correlation,
-                    'temporal_correlation': optim_pars.temporal_correlation
-                })
-                err = ureg(optim_pars.annual_uncertainty)
-                scf = ((1 * err.units) / species[cat.tracer].unit_budget).m
-                attrs['total_uncertainty'] = err * scf
+#                    'horizontal_correlation_type': optim_pars.spatial_correlation[0], 
+#                    'temporal_correlation_type': optim_pars.temporal_correlation[0],
+                    'error_structure': optim_pars.error_structure,
+#                    'horizontal_correlation': optim_pars.horizontal_correlation.correlation_length,
+                    'temporal_correlation': optim_pars.temporal_correlation,
+                    'error_structure': optim_pars.error_structure
+                }
+                
+                # Correlation lengths/structure needs some postprocessing:
+                # if isinstance(attrs['horizontal_correlation'], Path):
+                #     attrs['horizontal_correlation_type'] = 'file'
+                # else :
+                #     corlen, cortype = attrs['horizontal_correlation'].split('-')
+                #     attrs['horizontal_correlation'] = float(corlen)
+                #     attrs['horizontal_correlation_type'] = cortype
+
+                if isinstance(attrs['temporal_correlation'], Path):
+                    attrs['temporal_correlation_type'] = 'file'
+                else :
+                    attrs['temporal_correlation_type'] = 'e'
+                    
+                if isinstance(attrs['error_structure'], Path):
+                    attrs['error_structure_type'] = 'file'
+                else :
+                    attrs['error_structure_type'] = 'linear'
+                    
+                # Enable (or not) scaling of annual uncertainty
+                annual_uncertainty = optim_pars.get('annual_uncertainty')
+                if annual_uncertainty is not None :
+                    err = ureg(optim_pars.annual_uncertainty)
+                    scf = ((1 * err.units) / species[cat.tracer].unit_budget).m
+                    # WTF is happening here?
+                    attrs['total_uncertainty'] = err * scf
+
             else :
+                attrs = {'optimized' : False}
                 logger.info(f'Category {cat.name} of tracer {cat.tracer} will NOT be optimized')
             self.model_data[cat.tracer].variables[cat.name].attrs.update(attrs)
 

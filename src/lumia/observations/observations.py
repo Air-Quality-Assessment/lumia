@@ -103,7 +103,42 @@ class Observations:
 
     @classmethod
     def from_dconf(cls, dconf: Dict | DictConfig) -> "Observations":
-        ...
+        """
+        Generate an `Observations` object based on a dictionary of keys.
+        The corresponding yaml section should have the following structure:
+        
+        {
+            file : 
+            start :
+            end :
+            rename :
+                field1 : field1_newname
+                field2 : field2_newname
+            uncertainties :
+                err_min :
+                err_freq :
+                err_fac :
+                field_err_obs :
+        }
+        
+        Apart from "file", the other sections/keys are optional:
+        - start and end can be used to restrict the time-span of the obs database
+        - the rename key is used to specify a list of columns to be renamed
+        - the uncertainties section is used to pass settings for computing the obs uncertainties (see Observations.calc_uncertainties method).
+        """
+        obs = cls.from_tar(dconf['file'])
+        
+        # Restrict the list of observations to a certain time range:
+        obs.select_times(dconf.get('start'), dconf.get('end'))
+
+        # Rename columns (if needed!)
+        obs.observations.rename(columns=dconf.get('rename', {}), inplace=True)
+        
+        # Set uncertainty settings
+        obs.settings.update(**dconf.get('uncertainties', {}))
+        
+        return obs
+        
 
     @classmethod
     def from_tar(cls, filename: Path | str) -> "Observations":

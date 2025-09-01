@@ -8,6 +8,7 @@ from numpy import nan, array
 from typing import Dict
 from lumia.utils.units import units_registry
 from loguru import logger
+from pathlib import Path
 
 
 @dataclass
@@ -52,9 +53,13 @@ class Category(Hashable):
     apply_lsm: bool = True
     is_ocean: bool = False
     n_optim_points: int = None
+    horizontal_correlation_type: str = None
     horizontal_correlation: str = None
+    temporal_correlation_type: str = None
     temporal_correlation: str = None
-    total_uncertainty: Quantity = nan
+    error_structure_type : str = None
+    error_structure : str = None
+    total_uncertainty: Quantity = None 
     unit_emis: Quantity = None
     unit_mix: Quantity = None
     # unit_budget : Quantity = None
@@ -118,11 +123,16 @@ def attrs_to_nc(attrs: dict) -> dict:
         if isinstance(v, Unit):
             attrs[k] = str(v)
             to_units.append(k)
+        if isinstance(v, Quantity):
+            attrs[k] = str(v.u)
+            to_units.append(k)
         if isinstance(v, Constructor):
             attrs[k] = v.str
         if v is None :
             attrs[k] = str(v)
             to_none.append(k)
+        if isinstance(v, Path):
+            attrs[k] = str(v)
 
     # add attributes listing the variable conversions (for converting back)
     if to_bool:
