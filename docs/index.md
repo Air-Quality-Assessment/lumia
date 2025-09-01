@@ -9,9 +9,7 @@ The release 2020.8 is described in [https://www.geosci-model-dev-discuss.net/gmd
 git clone --branch master https://github.com/lumia-dev/lumia.git
 ```
 
-This documentation focuses on an updated release
-???+ Danger "Pending update"
-    this documentation is being revised at the very moment. The text in this page refers to the "master" branch, not to the "default" one).
+This documentation focuses on the current version of the code.
 
 # Folder structure
 
