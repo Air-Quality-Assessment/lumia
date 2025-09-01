@@ -8,6 +8,8 @@ nav:
   #- Settings: settings.md
   - Modules:
     - observations.md
+    - prior.md
+    - data.md
 
 markdown_extensions:
   - pymdownx.arithmatex:

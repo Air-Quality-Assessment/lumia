@@ -7,6 +7,7 @@ import xarray as xr
 from dataclasses import dataclass, field
 from numpy import ndarray, unique, array, zeros
 from numpy.typing import NDArray
+from typing import Dict
 from datetime import datetime
 from pandas import PeriodIndex, Timestamp, DatetimeIndex, interval_range, IntervalIndex
 from loguru import logger
@@ -26,6 +27,7 @@ from lumia.utils.tracers import species, Unit
 from lumia.utils.archive import Rclone
 from lumia.utils import debug
 from lumia.optimizer.categories import Category, attrs_to_nc, Constructor
+from functools import partial
 
 
 def offset_to_pint(offset: DateOffset):
@@ -102,7 +104,7 @@ class TracerEmis(xr.Dataset):
 
     @property
     def shape(self) -> Tuple[int, int, int]:
-        return self.dims['time'], self.dims['lat'], self.dims['lon']
+        return self.sizes['time'], self.sizes['lat'], self.sizes['lon']
 
     @property
     def optimized_categories(self) -> List[Category]:
@@ -349,7 +351,11 @@ class TracerEmis(xr.Dataset):
 
                 # Copy var attributes:
                 for k, v in attrs_to_nc(self[var].attrs).items():
-                    setattr(nc[var], k, v)
+                    try :
+                        setattr(nc[var], k, v)
+                    except Exception as e :
+                        logger.critical(f"Couldn't write attribute {k} with value {v}")
+                        raise e
 
             # global attributes
             for k, v in attrs_to_nc(self.attrs).items():
@@ -580,7 +586,7 @@ class Data:
             self[tr].resolve_metacats()
 
     @classmethod
-    def from_file(cls, filename: Union[str, Path], units: Union[str, dict, Unit, Quantity] = None) -> "Data":
+    def from_file(cls, filename: Union[str, Path], units: Union[str, dict, Unit, Quantity] = None, force_units : None | Dict = None) -> "Data":
         """
         Create a new "Data" object based on a netCDF file (such as previously written by Data.to_netcdf).
         Arguments:
@@ -599,6 +605,9 @@ class Data:
             for tracer in fid.groups:
                 with xr.open_dataset(filename, group=tracer) as ds:
                     grid = Grid(latc=ds.lat.values, lonc=ds.lon.values)
+                    if force_units:
+                        ds.attrs['units'] = force_units.get(tracer)
+
                     em.add_tracer(TracerEmis(
                         tracer_name=tracer,
                         grid=grid,
@@ -724,6 +733,17 @@ def load_preprocessed(
     - field     : name of the field to be read, in case there are several fields in the pre-processed emission file
     """
 
+    def cleanup_dataset(ds : xr.Dataset, field : str | None) -> xr.Dataset:
+        if field is None and len(ds.data_vars) == 1 :
+            field = list(ds.data_vars)[0]
+        elif field is None :
+            logger.error("The file(s) contains multiple data variables. I don't know what to do with them:")
+            logger.error(pprint.pformat(glob.glob(f'{prefix}*nc')))
+            raise RuntimeError
+        ds_out = ds[field]
+        ds_out.name = 'emis'
+        return ds_out
+
     if archive is not None :
         archive = Rclone(archive)
         files_on_archive = archive.lsf()
@@ -743,20 +763,20 @@ def load_preprocessed(
             archive.get(prefix.parent / file)
 
     with dask.config.set(**{'array.slicing.split_large_chunks': True}):
-        data = xr.open_mfdataset(f'{prefix}*nc')
+        data = xr.open_mfdataset(f'{prefix}*nc', preprocess=partial(cleanup_dataset, field=field))['emis']
         
         # Ensure that the start and end are Timestamp:
         start = Timestamp(start)
         end = Timestamp(end)
         
-        # There should be a single dataarray in the file: get it:
-        if field is None and len(data.data_vars) == 1:
-            field = list(data.data_vars)[0]
-        elif field is None :
-            logger.error("The file(s) contains multiple data variables. I don't know what to do with them:")
-            logger.error(pprint.pformat(glob.glob(f'{prefix}*nc')))
-            raise RuntimeError
-        data = data[field]
+#       # There should be a single dataarray in the file: get it:
+#       if field is None and len(data.data_vars) == 1:
+#           field = list(data.data_vars)[0]
+#       elif field is None :
+#           logger.error("The file(s) contains multiple data variables. I don't know what to do with them:")
+#           logger.error(pprint.pformat(glob.glob(f'{prefix}*nc')))
+#           raise RuntimeError
+#       data = data[field]
 
         # Resample if needed:
         if freq is not None :

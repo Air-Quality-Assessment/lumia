@@ -12,7 +12,7 @@ authors = [
     {'name' = "Arndt Meier", email="arndt.meier@nateko.lu.se"}
 ]
 readme = "README.md"
-dependencies = ['loguru', 'pandas>=2.0.1', 'dask', 'tables', 'numpy', 'h5py', 'matplotlib', 'python-dateutil', 'netCDF4', 'xarray', 'pint', 'omegaconf', 'scipy', 'setuptools', 'bottleneck', 'mkdocs', 'h5netcdf', 'tqdm']
+dependencies = ['loguru', 'pandas>=2.0.1', 'dask', 'tables', 'numpy', 'h5py', 'matplotlib', 'python-dateutil', 'netCDF4', 'xarray', 'pint', 'omegaconf', 'scipy', 'setuptools', 'bottleneck', 'mkdocs', 'h5netcdf', 'tqdm', 'pymdown-extensions']
 requires-python = '>=3.9'
 classifiers = [
         "Programming Language :: Python :: 3",

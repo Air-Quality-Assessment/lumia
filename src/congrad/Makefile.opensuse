@@ -28,8 +28,8 @@ FFLAGS = $(FFLAGS_DEF) $(FFLAGS_OPT) -ffree-line-length-none
 
 # --- libs etc ---------------------------------------
 
-INCS = $(shell nf-config --fflags)
-LIBS = $(shell nf-config --flibs) -lnetcdff -lnetcdf -Wl,R$(shell nf-config --prefix)/lib64
+INCS = $(shell /usr/lib/hpc/gnu13/netcdf-fortran/4.5.3/bin/nf-config --fflags)
+LIBS = $(shell /usr/lib/hpc/gnu13/netcdf-fortran/4.5.3/bin/nf-config --flibs) -lnetcdff -lnetcdf -Wl,R$(shell /usr/lib/hpc/gnu13/netcdf-fortran/4.5.3/bin/nf-config --prefix)/lib64
 
 # --- implicit rules ---------------------------------
 
