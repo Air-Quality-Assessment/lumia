@@ -73,7 +73,7 @@ class LumiaFootprintFile(h5py.File):
         self.shift_t = int(shift_t)
 
     def get(self, obsid) -> SimpleNamespace :
-        itims = self[obsid]['itims'][:]
+        itims = self[obsid]['itims'][:].astype(int)
         ilons = self[obsid]['ilons'][:]
         ilats = self[obsid]['ilats'][:]
         sensi = self[obsid]['sensi'][:]

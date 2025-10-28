@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 from multiprocessing import Pool
-from numpy import pi, cos, sin, arcsin, zeros, exp, linalg, eye, meshgrid, flipud, argsort, diag, sqrt, where, unique
+from numpy import pi, cos, sin, arcsin, zeros, exp, linalg, eye, meshgrid, flipud, argsort, diag, sqrt, where, unique, nan
 from dataclasses import dataclass
 from numpy.typing import NDArray
 from loguru import logger
 from pint import Unit, Quantity
-from pandas import DateOffset, DataFrame
+from pandas import DateOffset, DataFrame, DatetimeIndex
 from tqdm.autonotebook import tqdm
 from lumia.utils import debug
 from typing import Tuple
@@ -14,6 +14,9 @@ from pathlib import Path
 from h5py import File
 import hashlib
 from functools import cache
+import xarray as xr
+from omegaconf import DictConfig
+from pandas.tseries.frequencies import to_offset
 
 
 _common = {}   # common for multiprocessing
@@ -51,7 +54,7 @@ def calc_dist_vector(iloc, stretch_ratio = 1., debug: bool = False):
     return V
 
 
-# @cache
+#@cache
 def calc_dist_matrix(lats, lons, stretch_ratio=1.):
     M = zeros((len(lats), len(lons)))
     _common['lons'] = lons
@@ -66,41 +69,118 @@ def calc_dist_matrix(lats, lons, stretch_ratio=1.):
     return M
 
 
+def read_spatial_correlations(filename : str, lats : NDArray, lons : NDArray) -> NDArray:
+    """
+    Create a correlation matrix for the given lat and lon coordinates, based on pre-computed correlation functions in a file
+    """
+    ds = xr.open_dataset(filename, group='correlations')
+    
+    # Ensure that all pairs of coordinates have a valid correlation value
+    points = [(lat, lon) for (lat, lon) in zip(ds.lat, ds.lon)]             # coordinates of the points in the file
+    
+    # Construct the covariance matrix:
+    mat = zeros((len(lats), len(lats)))
+    try :
+        for ip1, p1 in enumerate(zip(lats, lons)):
+            ix1 = points.index(p1)
+            for ip2, p2 in enumerate(zip(lats, lons)):
+                ix2 = points.index(p2)
+                mat[ip1, ip2] = ds.horizontal_correlations.values[ix1, ix2]
+    except ValueError as e:
+        logger.critical("Not all pairs of coordinates are present in the pre-processed correlation matrix file. Aborting.")
+        logger.exception(e)
+        
+    return mat
+    
+
 @dataclass(kw_only=True)
 class SpatialCorrelation:
-    corlen : float
+    mat : NDArray
     cortype : str
     lats : NDArray
     lons : NDArray
     min_eigval : float = 0.00001
+    corlen : float = None
+    corfile : str = None
     stretch_ratio : float = 1.
     min_corr : float = 1.e-7
     cache_dir : Path | None = None
 
     @debug.trace_args()
     def __post_init__(self):
-        
-        # Ensure that cache_dir is a Path and not a str (if not None)
-        if self.cache_dir :
+    #def __init__(self, B, cache_dir : Path | None = None, min_eigval : float = 0.00001):
+        if self.cache_dir:
             self.cache_dir = Path(self.cache_dir)
-            
-        self.n = len(self.lats)
+        #self.mat = B
+        #self.min_eigval = min_eigval
+        #self.eigen_vectors, self.eigen_values = self.calc_eigen_decomposition()
+        self._eigenvec = None
+        self._eigenval = None
 
-        # Calculate the covariance matrix:
-        distmat = calc_dist_matrix(self.lats, self.lons, stretch_ratio = self.stretch_ratio)
-        match self.cortype:
-            case 'g':
-                self.mat = exp(-(distmat/self.corlen)**2)
-            case 'e':
-                self.mat = exp(-(distmat/self.corlen))
-            case 'h':
-                self.mat = 1/(1+distmat/self.corlen)
-            case _:
-                logger.error(f'Correlation choice "{self.cortype}" should be one of ["g", "e", "h"]')
-                raise ValueError
-        self.mat[self.mat < self.min_corr] = 0.
-        self.eigen_vectors, self.eigen_values = self.calc_eigen_decomposition()
+    #---------------------------------------------
+    # Lazy calculation of the eigen-values/vectors, as we may not always want to calculate them
+    # For instance, when defining hybrid correlations
+    @property
+    def eigen_vectors(self):
+        if self._eigenvec is None: 
+            self.calc_eigen_decomposition()
+        return self._eigenvec
+    
+    @property
+    def eigen_values(self):
+        if self._eigenval is None:
+            self.calc_eigen_decomposition()
+        return self._eigenval
         
+    #---------------------------------------------
+    @classmethod
+    @debug.trace_args('cortype', 'corlen')
+    def from_pars(cls, lons : NDArray, lats : NDArray, cortype : str, corlen : float, cache_dir : Path | None = None, stretch_ratio : float = 1., min_corr : float = 1.e-7):
+        """
+
+        Args:
+            lons (NDArray): Longitude of the points (center of the grid cells) 
+            lats (NDArray): Latitude of the points (center of the grid cells)
+            cortype (str): Type of function used to generate the correlation: e (exponential), g (gaussian) or h (hyperbolic)
+            corlen (float): Correlation length
+            cache_dir (Path | None, optional): Since the calculation of the eigen-value decomposition can be quite lengthy, the code will store the result in a file in the "cache_dir" directory. Subsequent runs will be able to re-use this. The name of the file is based on the hash of the correlation matrix, and is not human readable.
+            stretch_ratio (float, optional): optionally, the correlation length can be set differently according to lat and lon. This is achieved by "stretching" the distances (e.g. a "stretch_ratio" of 2 will lead to distances along the longitude axis to be computed as twice what they really are for computing the correlations, therefore they will drop faster in the longitude axis than in the latitude axis.
+            min_corr (float): minimum correlation value allowed
+        """
+        
+        #npt = len(lats)
+        distmat = calc_dist_matrix(lats, lons, stretch_ratio = stretch_ratio)
+        match cortype.lower() :
+            case "g" | "gaussian" : 
+                mat = exp( - (distmat / corlen) ** 2)
+            case "e" | "exponential" :
+                mat = exp( - (distmat / corlen))
+            case "h" | "hyperbolic" :
+                mat = 1 / (1 + distmat / corlen)
+        mat[mat < min_corr] = 0.
+        return cls(
+            mat=mat, 
+            cache_dir=cache_dir, 
+            cortype=cortype,
+            corlen=corlen,
+            lats=lats, 
+            lons=lons, 
+            min_corr=min_corr, 
+            stretch_ratio=stretch_ratio
+        )
+    
+    @classmethod
+    @debug.timer
+    @debug.trace_args('filename')
+    def from_file(cls, filename : str | Path, lats : NDArray, lons : NDArray, cache_dir : Path | None = None):
+        ds = xr.open_dataset(filename)
+        index_file = ds[['lon_points', 'lat_points']].to_dataframe().reset_index().set_index(['lon_points', 'lat_points'])
+        points = index_file.loc[zip(lons, lats), :].point.values
+        ds['hc'] = xr.DataArray(ds.horizontal_correlations.values, dims=('point', 'other_point'))
+        ds['other_point'] = xr.DataArray(ds.point.values, dims=('other_point'))
+        mat = ds['hc'][{'point':points, 'other_point':points}].fillna(0).values
+        return cls(mat=mat, cortype='file', corfile=filename, lats=lats, lons=lons, cache_dir=cache_dir)
+
     @property
     def hash(self) -> int :
         """
@@ -126,7 +206,7 @@ class SpatialCorrelation:
                     return fid['eigen_vectors'][:], fid['eigen_values'][:]**.5
                 
         lam, p = linalg.eigh(self.mat)
-
+        
         # Make positive semidefinite
         if self.min_eigval > 1.e-10 :
             min_eigval = self.min_eigval * min((1, lam.max()))
@@ -136,11 +216,13 @@ class SpatialCorrelation:
         n_neg = sum(lam < min_eigval)
         n_neg2 = sum(abs(lam) < min_eigval)
         lam[lam < min_eigval] = min_eigval
+        #lam[abs(lam) < min_eigval] = min_eigval
         logger.debug(f"Maximum eigenvalue = {lam.max():10.3e}, minimum eigenvalue = {lam.min():10.3e}")
         if n_neg != n_neg2 :
-            logger.error(f"{n_neg - n_neg2} large negative eigen values set to 0. Maybe it's a bug?")
-        if n_neg > 0 :
-            logger.debug(f"Set {n_neg} eigenvalues to {min_eigval:15.11f}")
+            logger.warning(f"{n_neg - n_neg2} large negative eigen values set to 0. Maybe it's a bug?")
+            print(lam[lam < 0])
+        if n_neg2 > 0 :
+            logger.debug(f"Set {n_neg2} eigenvalues to {min_eigval:15.11f}")
             
         if self.cache_dir :
             # Create the directory if needed
@@ -158,12 +240,17 @@ class SpatialCorrelation:
                 fid['lats'][:] = self.lats
                 fid['lons'][:] = self.lons
                 #fid['B'] = self.mat
-                fid.attrs['corlen'] = self.corlen
-                fid.attrs['cortype'] = self.cortype
+                if self.cortype == 'file':
+                    fid.attrs['corfile'] = self.corfile
+                else:
+                    fid.attrs['corlen'] = self.corlen
+                    fid.attrs['cortype'] = self.cortype
                 fid.attrs['min_eigval'] = self.min_eigval
                 fid.attrs['stretch_ratio'] = self.stretch_ratio
                 fid.attrs['min_corr'] = self.min_corr
 
+        self._eigenvec = p
+        self._eigenval = lam ** .5
         return p, lam**.5
 
     @property
@@ -175,26 +262,35 @@ class SpatialCorrelation:
         return self.mat
 
 
-@dataclass(kw_only=True)
+#@dataclass(kw_only=True)
 class TemporalCorrelation:
-    corlen : float
-    dt : float
-    n : int
-    min_corr : float = 0
-
-    def __post_init__(self):
-        if self.corlen < 1.e-20:
-            self.B = eye(self.n)
-        else :
-            t1, t2 = meshgrid(range(self.n), range(self.n))
-            self.B = exp(- abs(t1 - t2) * self.dt / self.corlen)
-        self.B[self.B < self.min_corr] = 0.
-
-        self.eigen_vectors, self.eigen_values = self.calc_eigen_decomposition()
+    # cortype : str 
+    # corlen : float
+    # dt : float
+    # n : int
+    # min_corr : float = 0
+    
+    def __init__(self, B : NDArray):
+        self.B = B
+        self._eigenvec = None
+        self._eigenval = None
+        
+    @property
+    def eigen_vectors(self):
+        if self._eigenvec is None:
+            self.calc_eigen_decomposition()
+        return self._eigenvec
+    
+    @property
+    def eigen_values(self):
+        if self._eigenval is None:
+            self.calc_eigen_decomposition()
+        return self._eigenval
 
     @debug.timer
     def calc_eigen_decomposition(self) -> Tuple[NDArray, NDArray]:
         lam, evec = linalg.eigh(self.B)
+        lam[lam <= 0] = lam[lam > 0].min()
         sort_order = flipud(argsort(lam))
         lam = lam[sort_order]
         evec = evec[:, sort_order]
@@ -202,27 +298,31 @@ class TemporalCorrelation:
         # Make sure that the elements in the top row of P are non-negative
         col_sign = where(evec[0] < 0.0, -1.0, 1.0)
         ev = evec * col_sign
+        self._eigenvec = ev
+        self._eigenval = lam_sqrt
         return ev, lam_sqrt
 
     @property
     def L(self) -> NDArray:
         # TODO: check why eigen_values is not just a vector here (instead of a diagonal matrix).
         return self.eigen_vectors @ self.eigen_values
-
-
-# #@debug.timer
-# def aggregate_uncertainty(it1: int) -> float:
-#     itimes = _common['itimes']
-#     sig1 = _common['sigmas'][itimes == it1]
-#     Ct = _common['Ct']
-#     Ch = _common['Ch']
-#     nt = len(unique(itimes))
-#     err = 0
-#     for it2 in range(nt):
-#         sig2 = _common['sigmas'][itimes == it2]
-#         err += Ct[it1, it2] * sig1.T @ Ch @ sig2
-#         # err += (Ct[it1, it2] * Ch * sig1[None, :] * sig2[:, None]).sum()
-#     return err
+    
+    @classmethod
+    def from_file(cls, filename : str | Path, times : DatetimeIndex):
+        B = xr.open_dataset(filename).temporal_correlations
+        times_file = DatetimeIndex(B.time.values)
+        assert all(times_file == times)
+        return TemporalCorrelation(B.values)
+        
+    @classmethod
+    def from_params(cls, corlen : float, dt : float, n : int, min_corr : float = 0):
+        if corlen < 1.e-20:
+            B = eye(n)
+        else :
+            t1, t2 = meshgrid(range(n), range(n))
+            B = exp(- abs(t1 - t2) * dt / corlen)
+        B[B < min_corr] = 0.
+        return TemporalCorrelation(B)
 
 
 @debug.timer
@@ -261,30 +361,99 @@ def calc_total_uncertainty(
     return (sigmas @ (ch @ sigmas.reshape(nt, -1).T @ ct).T.reshape(-1))**.5
     
 
+# @debug.timer
+# def calc_temporal_correlation(
+#         corlen: DateOffset,
+#         dt: DateOffset, 
+#         sigmas: DataFrame) -> TemporalCorrelation:
+#     assert dt.base == corlen.base
+
+#     # Number of time steps :
+#     times = sigmas.loc[:, 'time'].drop_duplicates()
+#     nt = times.shape[0]
+
+#     return TemporalCorrelation(corlen=corlen.n / dt.n, dt=1., n=nt)
+
+    
 @debug.timer
-def calc_temporal_correlation(corlen: DateOffset, dt: DateOffset, sigmas: DataFrame) -> TemporalCorrelation:
-    assert dt.base == corlen.base
-
-    # Number of time steps :
-    times = sigmas.loc[:, 'time'].drop_duplicates()
-    nt = times.shape[0]
-
-    return TemporalCorrelation(corlen=corlen.n / dt.n, dt=1., n=nt)
+def calc_temporal_correlation(
+    cat : DictConfig,
+    #cortype : str, 
+    #corstr : DateOffset | str | Path,    # Should be either an offset (e.g. "30D") or a file path.
+    #dt : DateOffset | None = None,
+    sigmas : DataFrame | None = None) -> TemporalCorrelation :
+    
+    times = DatetimeIndex(sigmas.loc[:, 'time'].drop_duplicates())
+    match cat.temporal_correlation.type:
+        case "file":
+            return TemporalCorrelation.from_file(cat.temporal_correlation.file, times)
+        case "e" | "exp":
+            corlen = to_offset(cat.temporal_correlation.correlation_length)
+            dt = to_offset(cat.optimization_interval)
+            assert dt.base == corlen.base
+            nt = times.shape[0]
+            return TemporalCorrelation.from_params(corlen=corlen.n / dt.n, dt=1., n=nt)
+        case 'hybrid':
+            fcorr = TemporalCorrelation.from_file(cat.temporal_correlation.file, times)
+            corlen = to_offset(cat.temporal_correlation.correlation_length)
+            dt = to_offset(cat.optimization_interval)
+            assert dt.base == corlen.base
+            nt = times.shape[0]
+            dcorr = TemporalCorrelation.from_params(corlen=corlen.n / dt.n, dt=1., n=nt)
+            return TemporalCorrelation(fcorr.B * dcorr.B)
 
 
 @debug.timer
-def calc_horizontal_correlation(catname: str, corstring: str, sigmas: DataFrame, cache_dir : Path = None) -> SpatialCorrelation:
-    corlen, cortype = corstring.split('-')
-    corlen = int(corlen)
+def calc_horizontal_correlation(
+        cat : DictConfig,
+        sigmas: DataFrame, 
+        cache_dir : Path = None) -> SpatialCorrelation:
+
     logger.warning("Fix might be needed if two categories from two different tracers have the same name")
-    # Two categories with the same name can exist, in different tracers ...
-    # It would be better to have unique categories that have cat name and cat tracer as properties
-    vec = sigmas.loc[(sigmas.category == catname)]
-    vec = vec.loc[vec.time == vec.iloc[0].time]
-    return SpatialCorrelation(
-        corlen=corlen, 
-        cortype=cortype, 
-        lats=vec.lat.values, 
-        lons=vec.lon.values, 
-        cache_dir=cache_dir
-    )
+
+    #try :
+    #    vec = sigmas.loc[(sigmas.category == cat.name)]
+    #except :
+    #    import pdb; pdb.set_trace()
+    vec = sigmas.loc[sigmas.time == sigmas.iloc[0].time]
+    match cat.horizontal_correlation.type:
+        case "file":
+            return SpatialCorrelation.from_file(
+                filename=cat.horizontal_correlation.file, 
+                lats=vec.lat.values, 
+                lons=vec.lon.values, 
+                cache_dir=cache_dir
+            )
+        case "g" | "h" | "e" | "gaussian" | "hyperbolic" | "exponential":
+            # Two categories with the same name can exist, in different tracers ...
+            # It would be better to have unique categories that have cat name and cat tracer as properties
+            return SpatialCorrelation.from_pars(
+                corlen=Quantity(cat.horizontal_correlation.correlation_length).to('km').m, 
+                cortype=cat.horizontal_correlation.type,
+                lats=vec.lat.values, 
+                lons=vec.lon.values, 
+                cache_dir=cache_dir
+            )
+        case "hybrid":
+            # Combine a file-based correlation with a correlation-length based one
+            # For that, calculate first a file-based correlation matrix (fcorr), and then a distance-based
+            # one (dcorr). Then combine them using corr = (fcorr ** .5) * (dcorr ** .5)
+            fcorr = SpatialCorrelation.from_file(
+                filename = cat.horizontal_correlation.file,
+                lats = vec.lat.values,
+                lons = vec.lon.values,
+                cache_dir = cache_dir)
+            dcorr = SpatialCorrelation.from_pars(
+                corlen = Quantity(cat.horizontal_correlation.correlation_length).to('km').m,
+                cortype = cat.horizontal_correlation.correlation_type,
+                lats = vec.lat.values,
+                lons = vec.lon.values,
+                cache_dir = cache_dir)
+            return SpatialCorrelation(
+                mat = fcorr.B * dcorr.B,
+                cortype = 'hybrid',
+                lats = vec.lat.values,
+                lons = vec.lon.values,
+                corlen = cat.horizontal_correlation,
+                cache_dir = cache_dir
+            )

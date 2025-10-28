@@ -233,6 +233,7 @@ class Observations:
             # 3) Calculate the standard deviation of the residuals model-data mismatches. Store it in sites dataframe for info.
             sigma = (resid_obs - resid_mod).dropna().values.std()
             self.sites.loc[self.sites.code == code, 'err'] = sigma
+            self.observations.loc[self.observations.code == code, 'sigma'] = sigma
             logger.info(f'Model uncertainty for site {code} set to {sigma:.2f}')
             
             # 4) Get the measurement uncertainties and calculate the error inflation

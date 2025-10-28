@@ -174,8 +174,8 @@ class Optimizer:
         logger.info(f'Posterior gradient norm: {posterior_gradient_norm : .2f}')
 
         # Store "result":
-        with open(self.settings.output_path / 'optim_debug.pickle', 'wb') as fid:
-            pickle.dump(result, fid)
+#        with open(self.settings.output_path / 'optim_debug.pickle', 'wb') as fid:
+#            pickle.dump(result, fid)
 
         return result.x
     

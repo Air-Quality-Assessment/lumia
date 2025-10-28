@@ -170,9 +170,9 @@ class Transport:
 
     @debug.timer
     def calc_sensi_map(self, emissions: Emissions):
-        departures = self.observations["adj_forcings"] = 1
+        departures = ones(self.observations.shape[0])
         emissions.to_netcdf(self.path_temp / 'emissions.nc', zlib=False, only_transported=True)
-        adjfield = self.calc_departures_adj(self.observations.adj_forcings)
+        adjfield = self.calc_departures_adj(departures)
         sensi = {}
         for tracer in adjfield.tracers:
             sensi[tracer] = array([adjfield[tracer][cat].data.sum(0) for cat in adjfield[tracer].categories]).sum(0)

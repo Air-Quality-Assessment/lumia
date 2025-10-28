@@ -40,15 +40,16 @@ prefix = resources.files("lumia")
 if Path(sys.prefix) in prefix.parents :
     prefix = Path(sys.prefix)
 else :
-    prefix = prefix.parent
+    prefix = prefix.parent.parent
 OmegaConf.register_new_resolver('lumia', lambda p: prefix / p)
+OmegaConf.register_new_resolver('file', lambda p: Path(p))
 
 # Register the `ts` and `Grid` resolvers:
 OmegaConf.register_new_resolver('ts', Timestamp)
 OmegaConf.register_new_resolver('Grid', lambda d: Grid(**d))
 
 
-def read_config(file : str | Path, machine: str = None, **extra_keys) -> DictConfig:
+def read_config(file : str | Path, machine: str = None, append_tag : bool = True, **extra_keys) -> DictConfig:
     """
     Load a yaml configuration file.
     The "machine" optional argument can be a string, pointing to the name of a section to be rename as "machine". The content of that section should be machine-specific settings (i.e. paths, libraries, number of CPUs, etc.). This allows having a single configuration file valid on different computers.
@@ -95,6 +96,8 @@ def read_config(file : str | Path, machine: str = None, **extra_keys) -> DictCon
             ncores : 1
     ```
     
+    The `append_tag` option adds a start-end time based subdirectory to the "tag" (e.g., if `run.tag` is set to `v0`, and the simulation is for the period from 1st january to 1st march 2020, then `run.tag` will be modified to v0/20200101-20200201
+    
     The `extra_keys` section allows completing or overwriting keys from the YAML file. For instance:
     - conf = read_config(filename, extra_keys={'run':{'project': 'my_project'}}) will set the `run.project` key to `my_project`, regardless of the value that may exist in the yaml file.
     - conf = read_config(filename, extra_keys={'run':{'project': None}}) will not impact how the YAML file is read, as `None` values are ignored.
@@ -115,9 +118,13 @@ def read_config(file : str | Path, machine: str = None, **extra_keys) -> DictCon
             
             # Merge with the relevant section
             dconf[section_name] = OmegaConf.merge(dconf[section_name], curated_kwargs) 
-            
-            for k, v in curated_kwargs:
+
+            for k, v in curated_kwargs.items():
                 logger.info(f'Setting config key {k} to value {v}')
+                
+    if append_tag :
+        dconf.run.tag = f'{dconf.run.tag}/{Timestamp(dconf.run.start):%Y%m%d}-{Timestamp(dconf.run.end):%Y%m%d}'
+    
     return dconf
 
     

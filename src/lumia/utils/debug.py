@@ -149,6 +149,6 @@ def timer(func):
         start = time.perf_counter()
         result = func(*args, **kwargs)
         end = time.perf_counter()
-        logger.opt(colors=True).debug(f"<y>{func.__module__}.{func.__name__}</> ran in <r>{end - start}</r> seconds")
+        logger.opt(colors=True).debug(f"<y>{func.__module__}.{func.__name__}</> ran in <r>{end - start:.3f}</r> seconds")
         return result
     return inner
