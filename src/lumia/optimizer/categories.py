@@ -52,6 +52,8 @@ class Category(Hashable):
     optimization_interval: DateOffset = None
     apply_lsm: bool = True
     is_ocean: bool = False
+    is_fossil: bool = False # NOTE: added for accounting for fossil fuel emissions in 14C inversions
+    is_natural: bool = False # NOTE: added for accounting for natural emissions in 14C inversions
     n_optim_points: int = None
     horizontal_correlation_type: str = None
     horizontal_correlation: str = None

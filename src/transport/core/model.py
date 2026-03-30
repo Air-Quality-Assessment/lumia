@@ -100,8 +100,8 @@ class Forward(BaseTransport):
         # The rational is that 2 tracers will likely have different set of footprints, while two categories for one tracer will share the same footprints
         for tracer in emis.tracers :
 
-            obs = obs.loc[obs.tracer == tracer.tracer].copy()
-            fwd = self.run_tracer(tracer, obs)
+            obs_tr = obs.loc[obs.tracer == tracer.tracer].copy() # NOTE: obs_tr was necessary to avoid overwriting obs in place, which would affect subsequent tracer runs
+            fwd = self.run_tracer(tracer, obs_tr)
 
             # Combine :
             for col in [col for col in fwd.columns if col.startswith('mix')]:

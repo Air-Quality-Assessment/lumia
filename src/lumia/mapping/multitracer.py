@@ -268,9 +268,10 @@ class Mapping:
             for k, v in self.dconf.emissions[tracer].get('metacategories', {}).items():
                 self.model_data[tracer].add_metacat(k, v)
 
-        for cat in self.model_data.categories :
-
-            optim_pars = self.dconf.optimize.emissions[cat.tracer].get(cat.name)
+        for cat in self.model_data.categories:
+            
+            tracer_conf = self.dconf.optimize.emissions.get(cat.tracer, {}) # NOTE: important for real multitracer, still works for single tracer if the config is properly structured (i.e. optimize.emissions.co2.biosphere, optimize.emissions.co2.fossil, etc.)
+            optim_pars = tracer_conf.get(cat.name)
             attrs = {'optimized': optim_pars is not None}
             if optim_pars is not None:
                 logger.info(f'Category {cat.name} of tracer {cat.tracer} will be optimized')

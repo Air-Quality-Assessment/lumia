@@ -101,9 +101,12 @@ class Emissions(dict):
             obj[tracer] = EmissionFields.open_dataset(filename, group=tracer)
         return obj
 
-    def write(self, fname: str) -> None:
+    def write(self, fname: str) -> None: # NOTE: this didn't work before for real multitracer.
+        mode = 'w'
         for trname, tracer in self.items() :
-            tracer.to_netcdf(fname, group=trname, engine='h5netcdf')
+            tracer.to_netcdf(fname, group=trname, engine='h5netcdf', mode=mode)
+            mode = 'a'
+
 
     def asvec(self) -> ndarray:
         """
