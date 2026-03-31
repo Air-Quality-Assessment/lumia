@@ -1,0 +1,177 @@
+cosmos :
+  base : /lunarc/nobackup/projects/ghg_inv/carlos
+  temp : ${oc.env:SNIC_TMP}/${run.project}/${run.tag}/temp
+  footprints : ${machine.base}/data/footprints/10years/Flask
+  footprints_scratch : ${machine.temp}
+  emissions : 
+    co2: ${machine.base}/data/fluxes/co2/Postprocessed/ea.eurocom025x025
+    c14: ${machine.base}/data/fluxes/c14/Postprocessed/ea.eurocom025x025
+  congrad : ${lumia:src/congrad/congrad.exe}
+  output : ${machine.base}/data/output
+  backgrounds : None
+  correlations : ${machine.output}/correlations
+  ncores : ${oc.env:SLURM_TASKS_PER_NODE}
+
+cosmos_i :
+  base : /lunarc/nobackup/projects/ghg_inv/carlos
+  temp : ${machine.output}/${run.project}/${run.tag}/temp
+  footprints : 
+    flsk: ${machine.base}/data/footprints/10years/Flask
+    intg: ${machine.base}/data/footprints/10years/Integrated
+    hrly: ${machine.base}/data/footprints/10years/Instant
+  footprints_scratch : 
+    flsk: ${machine.temp}/footprints_flsk
+    intg: ${machine.temp}/footprints_intg
+    hrly: ${machine.temp}/footprints_hrly
+  emissions : 
+    co2: ${machine.base}/data/fluxes/co2/Postprocessed/ea.eurocom025x025
+    c14: ${machine.base}/data/fluxes/c14/Postprocessed/ea.eurocom025x025
+  congrad : ${lumia:src/congrad/congrad.exe}
+  output : ${machine.base}/data/output
+  backgrounds : None
+  correlations : ${machine.output}/correlations
+  ncores : 24
+
+observations :
+  file :
+    path : ${machine.base}/scripts/Test/obs/AllObs_2024_hourly_CO2_14Cbg_adjusted_errors.tar.gz
+  field_bg_14c: c14.background
+  obs_types : 
+    co2 : [hrly]
+    c14 : [intg, flsk]
+
+run :
+  start : 1 june 2024
+  end : 1 july 2024
+  project : Test_sensi_map_clusters
+  tag : lumia_multitracer
+  ncores : ${machine.ncores}
+  domain : eurocom025x025
+  optimizer : ${lanczos}
+  spinup : 0
+  spindown : 0
+  paths :
+    output : ${machine.output}/${..project}/${..tag}
+    cache_dir : ${machine.correlations}
+    emissions : ${machine.emissions}
+    temp : ${machine.temp}
+    footprints : 
+      flsk: ${machine.footprints.flsk}
+      intg: ${machine.footprints.intg}
+      hrly: ${machine.footprints.hrly}
+    footprints_scratch : 
+      flsk: ${machine.footprints_scratch.flsk}
+      intg: ${machine.footprints_scratch.intg}
+      hrly: ${machine.footprints_scratch.hrly}
+    backgrounds : ${machine.backgrounds}
+
+
+emissions :
+  tracers : [co2, c14]
+  co2 :
+    path : ${run.paths.emissions.co2}
+    prefix : flux_co2.
+    region : "${Grid:{lon0:-15, lat0:33, lon1:35, lat1:73, dlon:0.25, dlat:0.25}}"
+    interval : h
+    categories :
+      anthro :
+        origin : cte_hr_persector.anthro_nobunk
+        field : co2flux
+        is_fossil : yes
+      bunker :
+        origin : cte_hr_persector.bunker
+        field : co2flux
+        is_fossil : yes
+      nee :
+        origin : LPJ_NEE_hourly_v2
+        field : co2flux
+        is_natural : yes
+      ocean :
+        origin : s10oc_v2025_EU
+        field : co2flux
+        is_ocean : yes
+        is_natural : yes
+    #archive : rclone:swestore:LUMIA/fluxes/nc/${run.domain}
+  c14:
+    path : ${run.paths.emissions.c14}
+    prefix : flux_c14.
+    region : "${Grid:{lon0:-15, lat0:33, lon1:35, lat1:73, dlon:0.25, dlat:0.25}}"
+    interval : h
+    categories :
+      nuclear :
+        origin : nuclear_production_flat_year_v2
+        field : c14flux
+      biodis :
+        origin : LPJ_land_disequilibrium_v2
+        field : c14flux
+    #archive : rclone:swestore:LUMIA/fluxes/nc/${run.domain}
+
+model :
+  path_temp : ${run.paths.temp}
+  executable : ${lumia:src/transport/multitracer_14c.py}
+  path_footprints : ${run.paths.footprints}
+  path_footprints_scratch : ${run.paths.footprints_scratch}
+  split_categories : yes
+  output_steps : [apri, apos]
+  extra_arguments :
+    apri : --check-footprints
+    "*" : -n ${run.ncores}
+  extra_fields : [footprint, mix_background, obsid]
+  serial : no
+  path_output : ${run.paths.output}
+  setup_uncertainties : [] # set-up an empty list to avoid that lumia overwrite the observation uncertainties 'err' 
+
+
+congrad:
+  output_path : ${run.paths.output}
+  number_of_iterations : 10
+  gradient_norm_reduction : 1.e6
+
+lanczos:
+  gradient_norm_reduction: 1.e6
+  number_of_iterations: 10
+  communication_file: ${run.paths.temp}/congrad.nc
+  executable: ${machine.congrad}
+  output_path : ${run.paths.output}
+
+
+optimize:
+  emissions :
+    co2:
+      anthro:
+        annual_uncertainty: 0.35 PgC
+        horizontal_correlation: 
+          type: g
+          correlation_length: 4000 km
+        temporal_correlation: 
+          type: e
+          correlation_length: 30D
+        optimization_interval: 14d
+        error_structure: 
+          type: linear
+        npoints: 8000
+      nee:
+        annual_uncertainty: 0.35 PgC
+        horizontal_correlation:
+          type: g
+          correlation_length: 4000 km
+        temporal_correlation: 
+          type: e
+          correlation_length: 30D
+        optimization_interval: 14d
+        error_structure: 
+          type: linear
+        npoints: 8000
+    c14:
+      biodis:
+        annual_uncertainty: 0.35 PgC
+        horizontal_correlation: 
+          type: g
+          correlation_length: 4000 km
+        temporal_correlation: 
+          type: e
+          correlation_length: 30D
+        optimization_interval: 14d
+        error_structure:
+          type: linear
+        npoints: 8000
