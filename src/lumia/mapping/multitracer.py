@@ -286,12 +286,12 @@ class Mapping:
 #                    'horizontal_correlation_type': optim_pars.spatial_correlation[0], 
 #                    'temporal_correlation_type': optim_pars.temporal_correlation[0],
                     'error_structure': optim_pars.error_structure,
-#                    'horizontal_correlation': optim_pars.horizontal_correlation.correlation_length,
+                    'horizontal_correlation': optim_pars.horizontal_correlation,
                     'temporal_correlation': optim_pars.temporal_correlation,
                     'error_structure': optim_pars.error_structure
                 }
                 
-                # Correlation lengths/structure needs some postprocessing:
+                # # Correlation lengths/structure needs some postprocessing:
                 # if isinstance(attrs['horizontal_correlation'], Path):
                 #     attrs['horizontal_correlation_type'] = 'file'
                 # else :

@@ -170,7 +170,8 @@ class Transport:
 
     @debug.timer
     def calc_sensi_map(self, emissions: Emissions):
-        departures = ones(self.observations.shape[0])
+        departures = self.observations.obs.copy()
+        departures.loc[:] = 1.0
         emissions.to_netcdf(self.path_temp / 'emissions.nc', zlib=False, only_transported=True)
         adjfield = self.calc_departures_adj(departures)
         sensi = {}

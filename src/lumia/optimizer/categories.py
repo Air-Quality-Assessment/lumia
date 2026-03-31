@@ -70,6 +70,9 @@ class Category(Hashable):
     constructor: Constructor = None
     transported: bool = True
 
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
     def as_dict(self):
         # Should be deprecated ...
         return self.dict

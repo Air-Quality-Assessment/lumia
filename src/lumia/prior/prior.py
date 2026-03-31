@@ -56,8 +56,8 @@ class PriorConstraints:
         vectors = []
         sigmas, corr_t, corr_h = {}, {}, {}
         for cat in mapping.optimized_categories:
-            catconf = dconf.emissions[cat.tracer][cat.name]
-            match catconf.error_structure.type:
+            catconf = dconf.emissions[cat.tracer]['categories'][cat.name]
+            match cat.error_structure.type:
                 case 'linear':
                     # Error, in the model space, is proportional to the absolute value of the flux
                     errmap = abs(mapping.model_data[cat.tracer][cat.name])
@@ -70,12 +70,12 @@ class PriorConstraints:
                     errvec.loc[:, 'prior_uncertainty'] = errvec.prior_uncertainty ** .5
 
             # Calculate (square root of the inverse of) the covariance matrices
-            corr_t[cat] = calc_temporal_correlation(catconf, errvec.loc[errvec.category == cat.name])
-            corr_h[cat] = calc_horizontal_correlation(catconf, errvec.loc[errvec.category == cat.name], cache_dir=dconf.get('cache_dir', None))
+            corr_t[cat] = calc_temporal_correlation(cat, errvec.loc[errvec.category == cat.name])
+            corr_h[cat] = calc_horizontal_correlation(cat, errvec.loc[errvec.category == cat.name], cache_dir=dconf.get('cache_dir', None))
             
             # Calculate the total uncertainty, in any case
-            if catconf.get('annual_uncertainty') is not None :
-                annual_budget = ureg(catconf.annual_uncertainty)
+            if cat.get('annual_uncertainty') is not None :
+                annual_budget = ureg(cat.annual_uncertainty)
                 unit_budget = cat.total_uncertainty.units
             else :
                 # Even if no key is provided, we calculate the total uncertainty (for information!). 
@@ -86,7 +86,7 @@ class PriorConstraints:
             logger.info(f"Original uncertainty for category {cat.name}: {errtot:.3f} {unit_budget}")
 
             # Scale the sigmas to reach a target annual uncertainty (if it has been provided!):
-            if catconf.get('annual_uncertainty') is not None :
+            if cat.get('annual_uncertainty') is not None :
                 # Deduce a scaling factor for the prior_uncertainty column:
                 # Scale also by the simulation length, as uncertainty is provided in units/year
                 nsec = errvec.loc[:, ['itime', 'dt']].drop_duplicates().dt.sum().total_seconds()
