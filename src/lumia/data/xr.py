@@ -690,7 +690,8 @@ class Data:
                 freq_src = cat.get('resample_from', tr.interval) if isinstance(cat, DictConfig) else tr.interval
                 
                 # Construct the full file pattern
-                prefix = Path(tr.path) / freq_src / (tr.prefix + origin + '.')
+                # prefix = Path(tr.path) / freq_src / (tr.prefix + origin + '.')
+                prefix = Path(tr.path) / (tr.prefix + origin + '.')
                 
                 # Do the same for the archive (if needed):
                 archive = tr.get('archive', None)

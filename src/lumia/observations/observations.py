@@ -143,7 +143,7 @@ class Observations:
     @classmethod
     def from_tar(cls, filename: Path | str) -> "Observations":
         with tarfile.open(filename, 'r:gz') as tar:
-            observations = read_csv(tar.extractfile('observations.csv'), index_col=0, parse_dates=['time'], date_format='%Y%m%d%H%M%S')
+            observations = read_csv(tar.extractfile('observations.csv'), index_col=0, parse_dates=['time','time a'], date_format='%Y/%m/%d %H:%M:%S')
             sites = read_csv(tar.extractfile('sites.csv'), index_col=0)
         return cls(sites, observations)
 

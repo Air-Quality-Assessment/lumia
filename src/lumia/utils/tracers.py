@@ -16,6 +16,12 @@ class Specie:
         # This is a workaround for python>=3.11, where dataclasses only accept hashable objects as defaults (but don't actually check the hash)
         raise NotImplementedError
 
+EtO = Specie(
+    unit_emis=units('mol/s').units, 
+    unit_mix=units('ppb').units,
+    unit_budget=units('mol').units,
+    unit_optim=units('mol').units
+)
 
 CO2 = Specie(
     unit_emis=units('umol/m**2/s').units, 
@@ -52,6 +58,7 @@ class Species:
     c14 : Specie = CD14C
     ch4 : Specie = CH4
     bc  : Specie = BC
+    eto: Specie = EtO
 
     def __getitem__(self, tracer_name):
         return getattr(Species, tracer_name.lower())
