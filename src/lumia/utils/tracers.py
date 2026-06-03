@@ -17,7 +17,7 @@ class Specie:
         raise NotImplementedError
 
 EtO = Specie(
-    unit_emis=units('mol/s').units, 
+    unit_emis=units('mol/m**2/s').units, 
     unit_mix=units('ppb').units,
     unit_budget=units('mol').units,
     unit_optim=units('mol').units

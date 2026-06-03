@@ -503,6 +503,8 @@ class Mapping:
         if data is None :
             data = self.model_data[cat.tracer][cat.name].data
 
+        # print( f'\nself.temporal_mapping = {self.temporal_mapping}' )
+        # print( f'\nself.spatial_mapping = {self.spatial_mapping}' )
         tmap = self.temporal_mapping[cat].overlap_fraction.data.astype(bool)
         hmap = self.spatial_mapping[cat].overlap_fraction.data.astype(bool)
         field = tmap @ data.reshape(tmap.shape[1], -1)

@@ -42,6 +42,7 @@ def calc_dist(lon1, lat1, lon2, lat2, ae=6.371e6, stretch_ratio = 1.):
 
 
 def calc_dist_vector(iloc, stretch_ratio = 1., debug: bool = False):
+    print( f'\nline 45 _common = {_common}' )
     lons = _common['lons']
     lats = _common['lats']
     stretch_ratio = _common.get('stretch_ratio', stretch_ratio)
@@ -56,10 +57,12 @@ def calc_dist_vector(iloc, stretch_ratio = 1., debug: bool = False):
 
 #@cache
 def calc_dist_matrix(lats, lons, stretch_ratio=1.):
+    print( '***************** entering calc_dist_matrix *****************')
     M = zeros((len(lats), len(lons)))
     _common['lons'] = lons
     _common['lats'] = lats
     _common['stretch_ratio'] = stretch_ratio
+    print( f'\nline 64 _common = {_common}' )
     with Pool() as pp :
         res = pp.map(calc_dist_vector, range(len(lons)))
     for i, v in enumerate(res):
@@ -384,11 +387,13 @@ def calc_temporal_correlation(
     sigmas : DataFrame | None = None) -> TemporalCorrelation :
     
     times = DatetimeIndex(sigmas.loc[:, 'time'].drop_duplicates())
-    match cat.temporal_correlation.type:
+    #match cat.temporal_correlation.type:
+    match cat.temporal_correlation_type:
         case "file":
             return TemporalCorrelation.from_file(cat.temporal_correlation.file, times)
         case "e" | "exp":
-            corlen = to_offset(cat.temporal_correlation.correlation_length)
+            #corlen = to_offset(cat.temporal_correlation.correlation_length)
+            corlen = to_offset(cat.temporal_correlation)
             dt = to_offset(cat.optimization_interval)
             assert dt.base == corlen.base
             nt = times.shape[0]
@@ -416,7 +421,8 @@ def calc_horizontal_correlation(
     #except :
     #    import pdb; pdb.set_trace()
     vec = sigmas.loc[sigmas.time == sigmas.iloc[0].time]
-    match cat.horizontal_correlation.type:
+    #match cat.horizontal_correlation.type:
+    match cat.horizontal_correlation_type:
         case "file":
             return SpatialCorrelation.from_file(
                 filename=cat.horizontal_correlation.file, 
@@ -424,12 +430,12 @@ def calc_horizontal_correlation(
                 lons=vec.lon.values, 
                 cache_dir=cache_dir
             )
-        case "g" | "h" | "e" | "gaussian" | "hyperbolic" | "exponential":
+        case "g" | "h" | "e" | "gaussian" | "hyperbolic" | "exponential" | None:
             # Two categories with the same name can exist, in different tracers ...
             # It would be better to have unique categories that have cat name and cat tracer as properties
-            return SpatialCorrelation.from_pars(
-                corlen=Quantity(cat.horizontal_correlation.correlation_length).to('km').m, 
-                cortype=cat.horizontal_correlation.type,
+            return SpatialCorrelation.from_pars( #corlen=Quantity(cat.horizontal_correlation.correlation_length).to('km').m, 
+                corlen=Quantity(cat.horizontal_correlation).to('km').m,  #cortype=cat.horizontal_correlation.type,
+                cortype="e",
                 lats=vec.lat.values, 
                 lons=vec.lon.values, 
                 cache_dir=cache_dir

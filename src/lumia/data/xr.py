@@ -11,7 +11,7 @@ from typing import Dict
 from datetime import datetime
 from pandas import PeriodIndex, Timestamp, DatetimeIndex, interval_range, IntervalIndex
 from loguru import logger
-from pandas import date_range, DateOffset, Timedelta
+from pandas import date_range, DateOffset, Timedelta, to_datetime
 from pandas.tseries.frequencies import to_offset
 from netCDF4 import Dataset
 import numbers
@@ -778,6 +778,14 @@ def load_preprocessed(
 #           logger.error(pprint.pformat(glob.glob(f'{prefix}*nc')))
 #           raise RuntimeError
 #       data = data[field]
+
+        # EAP addition 2026-05-27
+        # convert the times from POSIX/UNIX to datetime64
+        # print( f'old data.time.values[0] = {data.time.values[0]}' )
+        # print( f'old data.time.values[1] = {data.time.values[1]}' )
+        data['time'] = to_datetime( array(data.time.values, dtype="datetime64[s]") )
+        # print( f'data.time.values[0] = {data.time.values[0]}' )
+        # print( f'data.time.values[1] = {data.time.values[1]}' )
 
         # Resample if needed:
         if freq is not None :

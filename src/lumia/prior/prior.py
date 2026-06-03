@@ -56,8 +56,12 @@ class PriorConstraints:
         vectors = []
         sigmas, corr_t, corr_h = {}, {}, {}
         for cat in mapping.optimized_categories:
+            # cat.horizontal_correlation_type = "e"
+            # print( f'\ndconf.emissions = {dconf.emissions}' )
+            # print( f'\ncat = {cat}' )
             catconf = dconf.emissions[cat.tracer]['categories'][cat.name]
-            match cat.error_structure.type:
+            #match cat.error_structure.type:
+            match cat.error_structure_type:
                 case 'linear':
                     # Error, in the model space, is proportional to the absolute value of the flux
                     errmap = abs(mapping.model_data[cat.tracer][cat.name])
