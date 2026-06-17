@@ -52,7 +52,7 @@ class Observations:
             if df.loc[:, col].dtype == 'O' and isinstance(df.loc[:, col].iloc[0], bool):
                 logger.warning(f"Converting column {col} from {df.loc[:, col].dtype} to {bool}")
                 df.loc[:, col] = df.loc[:, col].astype(bool)
-        df.to_hdf(filename, key='observations')
+        df.to_hdf(filename, key='observations', format='fixed')
         return Path(filename)
 
     def save_tar(self, filename: Path | str) -> Path :
@@ -208,6 +208,9 @@ class Observations:
     def calc_uncertainties(self, step: str = None):
         
         # Ensure that all observations have measurement error:
+        # print( f'\nself.settings.field_err_obs = {self.settings.field_err_obs}' )
+        # print( f'\nself.observations = {self.observations}' )
+        self.settings.field_err_obs = 'err'
         sel = self.observations.loc[:, self.settings.field_err_obs] <= 0
         self.observations.loc[sel, self.settings.field_err_obs] = self.settings.err_min
 

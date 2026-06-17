@@ -334,6 +334,12 @@ class TracerEmis(xr.Dataset):
                     nc[var].units = f'seconds since {self[var][0].dt.strftime("%Y-%m-%d").data}'
                     nc[var].calendar = 'proleptic_gregorian'
                     nc[var][:] = data
+                elif vartype == 'datetime64[us]':
+                    data = ((self[var].data - self[var].data[0]) / 1.e6).astype('int64')
+                    nc.createVariable(var, 'int64', self[var].dims)
+                    nc[var].units = f'seconds since {self[var][0].dt.strftime("%Y-%m-%d").data}'
+                    nc[var].calendar = 'proleptic_gregorian'
+                    nc[var][:] = data
                 else:
                     nc.createVariable(var, self[var].dtype, self[var].dims)
                     nc[var][:] = self[var].data

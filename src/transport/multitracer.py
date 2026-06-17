@@ -55,7 +55,8 @@ if __name__ == '__main__':
     logger.add(sys.stderr, level=args.verbosity)
     logger.debug('test')
 
-    obs = Observations.read(args.obs)
+    # obs = Observations.read(args.obs)
+    obs = args.obs
 
     # Set the max time limit for footprints:
     LumiaFootprintFile.maxlength = args.max_footprint_length

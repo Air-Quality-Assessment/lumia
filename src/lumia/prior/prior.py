@@ -75,7 +75,7 @@ class PriorConstraints:
 
             # Calculate (square root of the inverse of) the covariance matrices
             corr_t[cat] = calc_temporal_correlation(cat, errvec.loc[errvec.category == cat.name])
-            corr_h[cat] = calc_horizontal_correlation(cat, errvec.loc[errvec.category == cat.name], cache_dir=dconf.get('cache_dir', None))
+            corr_h[cat] = calc_horizontal_correlation(cat, errvec.loc[errvec.category == cat.name]) #, cache_dir=dconf.get('cache_dir', None))
             
             # Calculate the total uncertainty, in any case
             if cat.get('annual_uncertainty') is not None :

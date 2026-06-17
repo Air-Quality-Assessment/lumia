@@ -42,7 +42,7 @@ def calc_dist(lon1, lat1, lon2, lat2, ae=6.371e6, stretch_ratio = 1.):
 
 
 def calc_dist_vector(iloc, stretch_ratio = 1., debug: bool = False):
-    print( f'\nline 45 _common = {_common}' )
+    # print( f'\nline 45 _common = {_common}' )
     lons = _common['lons']
     lats = _common['lats']
     stretch_ratio = _common.get('stretch_ratio', stretch_ratio)
@@ -59,16 +59,26 @@ def calc_dist_vector(iloc, stretch_ratio = 1., debug: bool = False):
 def calc_dist_matrix(lats, lons, stretch_ratio=1.):
     print( '***************** entering calc_dist_matrix *****************')
     M = zeros((len(lats), len(lons)))
-    _common['lons'] = lons
-    _common['lats'] = lats
-    _common['stretch_ratio'] = stretch_ratio
-    print( f'\nline 64 _common = {_common}' )
-    with Pool() as pp :
-        res = pp.map(calc_dist_vector, range(len(lons)))
-    for i, v in enumerate(res):
-        M[:i+1, i] = v
-        M[i, :i+1] = v
-    del _common['lons'], _common['lats']
+    # _common['lons'] = lons
+    # _common['lats'] = lats
+    # _common['stretch_ratio'] = stretch_ratio
+    # print( f'\nline 64 _common = {_common}' )
+    # with Pool() as pp :
+    #     res = pp.map(calc_dist_vector, range(len(lons)))
+    # for i, v in enumerate(res):
+    #     M[:i+1, i] = v
+    #     M[i, :i+1] = v
+    for i in range(len(lons)):
+        if i % 500 == 0:
+            print( f'\t{i} / {len(lons)}' )
+        reflon = lons[i]
+        reflat = lats[i]
+        V = zeros(i+1)
+        for ii, (lon, lat) in enumerate(zip(lons[:i+1], lats[:i+1])):
+            V[ii] = calc_dist(reflon, reflat, lon, lat, stretch_ratio=stretch_ratio)
+        M[:i+1, i] = V
+        M[i, :i+1] = V
+    # del _common['lons'], _common['lats']
     return M
 
 
@@ -156,7 +166,7 @@ class SpatialCorrelation:
         match cortype.lower() :
             case "g" | "gaussian" : 
                 mat = exp( - (distmat / corlen) ** 2)
-            case "e" | "exponential" :
+            case "e" | "exponential" | None:
                 mat = exp( - (distmat / corlen))
             case "h" | "hyperbolic" :
                 mat = 1 / (1 + distmat / corlen)
